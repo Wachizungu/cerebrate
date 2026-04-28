@@ -1608,9 +1608,6 @@ class CRUDComponent extends Component
         return $query->where([$modelAlias . '.id IN' => $subQuery]);
     }
 
-    // FIXME: Adding related condition with association having `through` setup might include duplicate in the result set
-    // We should probably rely on `innerJoinWith` and perform deduplication via `distinct`
-    // Or grouping by primary key for the main model (however this is not optimal/efficient/clean)
     protected function setNestedRelatedCondition($query, $filterParts, $filterValue)
     {
         $modelName = $filterParts[0];
@@ -1626,7 +1623,7 @@ class CRUDComponent extends Component
                 }
             );
         }
-        return $query;
+        return $query->distinct();
     }
 
     protected function setRelatedCondition($query, $modelName, $fieldName, $filterValue)
@@ -1639,7 +1636,7 @@ class CRUDComponent extends Component
                 }
                 return $this->setValueCondition($q, $fieldName, $filterValue);
             }
-        );
+        )->distinct();
     }
 
     protected function setValueCondition($query, $fieldName, $value)
