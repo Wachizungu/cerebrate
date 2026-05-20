@@ -201,6 +201,12 @@ To add a recipient's key:
 Cerebrate validates the key on save — invalid, expired, revoked,
 or non-encrypting keys are rejected.
 
+You do **not** need to mark recipient keys as trusted manually.
+Cerebrate sets the ownertrust automatically on import (the
+operator's act of storing the key on the Individual is treated as
+sufficient validation), so encryption to that recipient works on
+the first send without a `gpg --import-ownertrust` ritual.
+
 Multiple keys per Individual are supported. The CLI and the
 mailer use the first available `pgp`-type key per Individual; if
 you have multiple, revoke or delete the one you don't want
@@ -273,6 +279,29 @@ returns non-zero with a one-line error.
 3. Inspect rendered content in `logs/debug.log`.
 4. Turn the setting off when done.
 
+### Verify MIME envelopes against a local mail catcher
+
+When you want to inspect the actual wire format (`multipart/signed`
+or `multipart/encrypted` envelopes, headers, MIME boundaries)
+without involving a real SMTP relay, use a dev catcher like
+[mailpit](https://github.com/axllent/mailpit) or
+[mailhog](https://github.com/mailhog/MailHog):
+
+1. Start mailpit on its default ports — SMTP `1025`, web UI `8025`.
+2. In `config/app_local.php`, point `EmailTransport.default` at
+   `127.0.0.1:1025` with `tls => false`.
+3. Make sure **Disable outbound email** is `false` (so SMTP delivery
+   happens) and that your test recipient has a stored encryption
+   key if you're exercising `--encrypt`.
+4. Fire a send with the CLI.
+5. Open `http://localhost:8025` to see the captured message. The
+   web UI shows headers, MIME parts, and the raw source — enough to
+   verify the envelope is RFC 3156-compliant without needing a real
+   MUA to decrypt.
+
+Mailpit also exposes a JSON API at `/api/v1/messages` if you want
+to assert the envelope shape from a script.
+
 ### Lock the instance down to encrypted-only delivery
 
 For a CSIRT-style setup where every recipient is known and has a
@@ -311,7 +340,7 @@ are simply routed to the Debug transport with no SMTP traffic.
 |---|---|---|
 | `SendEmailException: Cerebrate.email.from is not configured` | Empty `from` setting. | Set a real From address in Settings → Network → Email. |
 | `Crypt_GPG_NoDataException` / `Crypt_GPG_BadPassphraseException` | Signing key missing, untrusted, or passphrase wrong. | Verify with `gpg --homedir <home> --list-secret-keys`. Trust the key (`gpg --edit-key … trust quit`). Confirm passphrase. |
-| GPG operation hangs forever | Untrusted key prompts `GET_BOOL untrusted_key.override` that `Crypt_GPG` cannot answer. | Mark the key trusted via `gpg --edit-key … trust quit`, or feed an ownertrust file with `gpg --import-ownertrust`. |
+| GPG operation hangs forever | The **server signing key** is untrusted — gpg prompts for `GET_BOOL untrusted_key.override` that `Crypt_GPG` can't answer. Recipient keys can't trigger this any more; Cerebrate auto-trusts them on import. | Mark the *server* key trusted: `sudo -u www-data gpg --homedir <home> --edit-key <signing-key-id> trust quit` (choose `5 - ultimate`). |
 | `--encrypt requires --to to match a known Individual` | Used `--encrypt` with a raw address. | Use the Individual's email, or add the address to an Individual first. |
 | `No usable GPG encryption key found for the recipient Individual.` | Individual exists but has no PGP key, or only revoked/expired keys. | Add a valid PGP public key under the Individual's Encryption Keys tab. |
 | `SendEmailException: only_encrypted enabled but message was not encrypted` | `only_encrypted=true` and the message couldn't be encrypted. | Add a recipient key, or disable `only_encrypted` if plaintext is acceptable for this audience. |
