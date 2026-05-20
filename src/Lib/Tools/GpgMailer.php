@@ -365,7 +365,54 @@ class GpgMailer
             return null;
         }
 
+        if (!$this->setOwnerTrustUltimate($fingerprint)) {
+            return null;
+        }
+
         return $fingerprint;
+    }
+
+    /**
+     * Mark a freshly-imported key as ultimately-trusted in Cerebrate's GPG
+     * homedir so subsequent encrypt operations don't prompt for the
+     * `untrusted_key.override` confirmation that Crypt_GPG can't answer
+     * (which would hang the mailer forever).
+     *
+     * Crypt_GPG does not expose `--trust-model always` or any direct
+     * ownertrust setter, so we shell out to `gpg --import-ownertrust` with
+     * `<fingerprint>:6:` on stdin. Trust level 6 is acceptable here because
+     * the operator has already vetted the key by storing it on an
+     * Individual via Cerebrate's encryption_keys table.
+     *
+     * @param string $fingerprint Full fingerprint of the key to trust.
+     * @return bool true on success, false on any failure.
+     */
+    protected function setOwnerTrustUltimate(string $fingerprint): bool
+    {
+        $homedir = Configure::read('GnuPG.homedir') ?? ROOT . '/.gnupg';
+        $binary = Configure::read('GnuPG.binary') ?: '/usr/bin/gpg';
+
+        $descriptors = [
+            0 => ['pipe', 'r'],
+            1 => ['pipe', 'w'],
+            2 => ['pipe', 'w'],
+        ];
+        $proc = proc_open(
+            [$binary, '--homedir', $homedir, '--batch', '--import-ownertrust'],
+            $descriptors,
+            $pipes
+        );
+        if (!is_resource($proc)) {
+            return false;
+        }
+        fwrite($pipes[0], sprintf("%s:6:\n", $fingerprint));
+        fclose($pipes[0]);
+        stream_get_contents($pipes[1]);
+        stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+
+        return proc_close($proc) === 0;
     }
 
     /**

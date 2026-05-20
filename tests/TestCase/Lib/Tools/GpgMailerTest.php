@@ -277,4 +277,44 @@ class GpgMailerTest extends TestCase
         $this->assertNotSame('...', $result['subject']);
         $this->assertStringContainsString('2026-07-04', $result['subject']);
     }
+
+    /**
+     * Without auto-set ownertrust on the freshly-imported recipient key,
+     * Crypt_GPG hangs forever waiting on `untrusted_key.override`. This
+     * test runs the import against a fresh, empty homedir and asserts the
+     * ownertrust DB has been populated with the recipient's fingerprint.
+     *
+     * @return void
+     */
+    public function testImportRecipientKeyAutoSetsOwnerTrust(): void
+    {
+        $freshHome = sys_get_temp_dir() . DIRECTORY_SEPARATOR
+            . 'cerebrate-gpgmailer-fresh-' . bin2hex(random_bytes(4));
+        if (!mkdir($freshHome, 0700, true)) {
+            $this->fail('Could not create temp homedir for test');
+        }
+        Configure::write('GnuPG.homedir', $freshHome);
+
+        try {
+            $mailer = new GpgMailer();
+            $method = new \ReflectionMethod($mailer, 'importAndValidateRecipientKey');
+            $method->setAccessible(true);
+            $fingerprint = $method->invoke($mailer, $this->recipientKey());
+
+            $this->assertNotNull($fingerprint, 'Expected the recipient key to validate and import');
+
+            $trustOutput = shell_exec(sprintf(
+                '/usr/bin/gpg --homedir %s --export-ownertrust 2>/dev/null',
+                escapeshellarg($freshHome)
+            ));
+            $this->assertNotNull($trustOutput);
+            $this->assertStringContainsString(
+                sprintf('%s:6:', $fingerprint),
+                (string)$trustOutput,
+                'Expected ownertrust=6 to be set on the imported recipient key'
+            );
+        } finally {
+            exec('rm -rf ' . escapeshellarg($freshHome));
+        }
+    }
 }
