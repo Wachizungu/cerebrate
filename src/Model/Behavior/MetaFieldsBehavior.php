@@ -46,6 +46,7 @@ class MetaFieldsBehavior extends Behavior
     private $aliasScope = null;
     private $typeHandlers = [];
     private $_metaTemplateFieldTable;
+    private $_metaTemplateTable;
 
     public function initialize(array $config): void
     {

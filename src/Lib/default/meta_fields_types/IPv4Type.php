@@ -15,6 +15,8 @@ class IPv4Type extends TextType
     public const OPERATORS = ['contains', 'excludes'];
     public const TYPE = 'ipv4';
 
+    protected $MetaTemplateFields;
+
     public function __construct()
     {
         parent::__construct();
