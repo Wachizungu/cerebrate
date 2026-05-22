@@ -50,6 +50,27 @@ class EncryptionKeysTable extends AppTable
         }
     }
 
+    /**
+     * Reset the reminder cadence whenever the underlying key material changes
+     * (new upload, key rotation, expiry extension, etc.). The next sweep run
+     * will treat the new blob as a fresh key and re-evaluate thresholds against
+     * its current expiry.
+     *
+     * @param \Cake\Event\EventInterface $event Fired save event.
+     * @param \Cake\Datasource\EntityInterface $entity Row being saved.
+     * @param \ArrayObject $options Save-time options array.
+     * @return void
+     */
+    public function beforeSave(
+        EventInterface $event,
+        \Cake\Datasource\EntityInterface $entity,
+        ArrayObject $options
+    ): void {
+        if (!$entity->isNew() && $entity->isDirty('encryption_key')) {
+            $entity->set('last_reminder_threshold', null);
+        }
+    }
+
     public function validationDefault(Validator $validator): Validator
     {
         $validator
