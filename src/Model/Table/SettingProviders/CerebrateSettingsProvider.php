@@ -252,6 +252,17 @@ class CerebrateSettingsProvider extends BaseSettingsProvider
                             'default' => false,
                         ],
                     ],
+                    'Reminders' => [
+                        '_description' => __('Scheduled reminder behavior for individual PGP keys (consumed by the `check_expiring_keys` cron command).'),
+                        '_icon' => 'clock',
+                        'Cerebrate.reminders.default_thresholds' => [
+                            'name' => __('Reminder thresholds (days before expiry)'),
+                            'type' => 'string',
+                            'severity' => 'info',
+                            'description' => __('Comma-separated positive integers. The sweep fires one reminder per threshold crossing per key (e.g. "30,7,1" sends at 30, 7, and 1 days before expiry, plus an "expired" notice once the key passes its expiry). Overridable per-run via `--thresholds`.'),
+                            'default' => '30,7,1',
+                        ],
+                    ],
                 ],
                 'UI' => [
                     'General' => [
