@@ -169,6 +169,57 @@ class CheckExpiringKeysCommandTest extends TestCase
         $this->assertOutputContains('attempted=0');
     }
 
+    public function testMultipleKeysForOneIndividualCollapseToOneDigest(): void
+    {
+        $secondKeyId = $this->seedKeyFor(IndividualsFixture::INDIVIDUAL_A_ID);
+        $this->stubExpiryDaysFromNow(6);
+
+        $this->exec('check_expiring_keys');
+        $this->assertExitSuccess();
+        $this->assertOutputContains('sent=1');
+        $this->assertMailCount(1);
+        $this->assertMailSubjectContains('GPG key reminders (2 keys)');
+
+        $this->assertSame(7, $this->loadKeyById($this->individualKeyId)->get('last_reminder_threshold'));
+        $this->assertSame(7, $this->loadKeyById($secondKeyId)->get('last_reminder_threshold'));
+    }
+
+    public function testTwoIndividualsEachReceiveTheirOwnDigest(): void
+    {
+        $bKeyId = $this->seedKeyFor(IndividualsFixture::INDIVIDUAL_B_ID);
+        $this->stubExpiryDaysFromNow(6);
+
+        $this->exec('check_expiring_keys');
+        $this->assertExitSuccess();
+        $this->assertOutputContains('sent=2');
+        $this->assertMailCount(2);
+
+        $this->assertSame(7, $this->loadKeyById($this->individualKeyId)->get('last_reminder_threshold'));
+        $this->assertSame(7, $this->loadKeyById($bKeyId)->get('last_reminder_threshold'));
+    }
+
+    public function testMixedExpiringAndExpiredCollapseToOneDigest(): void
+    {
+        $expiredKeyId = $this->seedKeyFor(IndividualsFixture::INDIVIDUAL_A_ID);
+        $this->stubExpiryByKeyId([
+            $this->individualKeyId => 6,
+            $expiredKeyId => -3,
+        ]);
+
+        $this->exec('check_expiring_keys');
+        $this->assertExitSuccess();
+        $this->assertMailCount(1);
+        $this->assertMailSubjectContains('GPG key reminders (2 keys)');
+        $this->assertMailContains('EXPIRED on');
+        $this->assertMailContains('expires on');
+
+        $this->assertSame(7, $this->loadKeyById($this->individualKeyId)->get('last_reminder_threshold'));
+        $this->assertSame(
+            ReminderSweep::EXPIRED,
+            $this->loadKeyById($expiredKeyId)->get('last_reminder_threshold')
+        );
+    }
+
     /**
      * Configure the test-only resolver so the seeded key reports a deterministic expiry.
      *
@@ -185,11 +236,42 @@ class CheckExpiringKeysCommandTest extends TestCase
     }
 
     /**
-     * Seed an individual-owned encryption_keys row pointing at a fixture Individual.
+     * Configure the resolver to report distinct expiries keyed by encryption_keys row id.
+     * Keys absent from the map resolve to null (treated as unparseable → skipped).
+     *
+     * @param array<int, int> $daysByKeyId Map of key id to days-from-now (negative = already expired).
+     */
+    protected function stubExpiryByKeyId(array $daysByKeyId): void
+    {
+        CheckExpiringKeysCommand::$expiryResolverOverride =
+            static function (EncryptionKey $key) use ($daysByKeyId): ?DateTimeImmutable {
+                $id = (int)$key->id;
+                if (!array_key_exists($id, $daysByKeyId)) {
+                    return null;
+                }
+
+                return (new DateTimeImmutable('now', new DateTimeZone('UTC')))
+                    ->modify(sprintf('%+d seconds', $daysByKeyId[$id] * 86400));
+            };
+    }
+
+    /**
+     * Seed an individual-owned encryption_keys row pointing at the setUp recipient (Individual A).
      *
      * @return int Row id of the inserted EncryptionKey.
      */
     protected function seedIndividualKey(): int
+    {
+        return $this->seedKeyFor(IndividualsFixture::INDIVIDUAL_A_ID);
+    }
+
+    /**
+     * Seed an individual-owned encryption_keys row for the given individual.
+     *
+     * @param int $individualId Owning individual id.
+     * @return int Row id of the inserted EncryptionKey.
+     */
+    protected function seedKeyFor(int $individualId): int
     {
         $faker = \Faker\Factory::create();
         $table = TableRegistry::getTableLocator()->get('EncryptionKeys');
@@ -199,7 +281,7 @@ class CheckExpiringKeysCommandTest extends TestCase
             'encryption_key' => EncryptionKeysFixture::getPublicKey(EncryptionKeysFixture::KEY_TYPE_EDCH),
             'revoked' => false,
             'expires' => null,
-            'owner_id' => IndividualsFixture::INDIVIDUAL_A_ID,
+            'owner_id' => $individualId,
             'owner_model' => 'individual',
         ]);
         $table->saveOrFail($entity);
@@ -208,12 +290,23 @@ class CheckExpiringKeysCommandTest extends TestCase
     }
 
     /**
-     * Reload the seeded EncryptionKey row.
+     * Reload the setUp-seeded EncryptionKey row.
      */
     protected function loadKey(): EncryptionKey
     {
+        return $this->loadKeyById($this->individualKeyId);
+    }
+
+    /**
+     * Reload an EncryptionKey row by id.
+     *
+     * @param int $id Row id.
+     * @return \App\Model\Entity\EncryptionKey
+     */
+    protected function loadKeyById(int $id): EncryptionKey
+    {
         return TableRegistry::getTableLocator()
             ->get('EncryptionKeys')
-            ->get($this->individualKeyId);
+            ->get($id);
     }
 }

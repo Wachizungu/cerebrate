@@ -57,6 +57,73 @@ class ReminderMailer extends CerebrateMailer
     }
 
     /**
+     * Configure the mailer to send a single digest covering one or more of an
+     * individual's keys that need attention (expiring and/or already expired).
+     *
+     * This is the path the sweep uses. A digest of a single key renders as a
+     * one-row table and keeps the single-key subject, so the common case is
+     * unchanged for recipients.
+     *
+     * @param \App\Model\Entity\Individual $individual Recipient.
+     * @param array<int, array<string, mixed>> $items One record per key, each
+     *     `['key' => EncryptionKey, 'expiry' => DateTimeInterface, 'expired' => bool, 'threshold' => int]`.
+     *     `expiry` is the key's soonest encryption-subkey expiry, `expired` whether it has already passed,
+     *     `threshold` the crossed reminder band (carried for caller symmetry; not rendered).
+     * @return void
+     */
+    public function keyDigest(Individual $individual, array $items): void
+    {
+        usort($items, function (array $a, array $b): int {
+            if (!empty($a['expired']) !== !empty($b['expired'])) {
+                return !empty($a['expired']) ? -1 : 1;
+            }
+
+            return ($a['expiry'] ?? null) <=> ($b['expiry'] ?? null);
+        });
+
+        $this->setTo($individual->email);
+        $this->setSubject($this->digestSubject($items));
+        $this->setEmailFormat(Message::MESSAGE_BOTH);
+        $this->viewBuilder()
+            ->setTemplate('reminder_key_digest')
+            ->setLayout('default');
+        $this->setViewVars([
+            'individual' => $individual,
+            'items' => $items,
+        ]);
+
+        if (count($items) === 1) {
+            $key = $items[0]['key'];
+            $this->withReference('key:' . ($key->id ?? 'unknown'));
+        } else {
+            $this->withReference('digest:individual:' . ($individual->id ?? 'unknown'));
+        }
+    }
+
+    /**
+     * Compose the digest subject line. Mirrors the subject logic in the
+     * `reminder_key_digest` templates so the EmailRenderer / GpgMailer path
+     * produces the same subject as the native plaintext path.
+     *
+     * @param array<int, array<string, mixed>> $items Sorted digest items.
+     * @return string
+     */
+    protected function digestSubject(array $items): string
+    {
+        if (count($items) === 1) {
+            $item = $items[0];
+            $expiry = $item['expiry'] ?? null;
+            $date = $expiry instanceof DateTimeInterface ? $expiry->format('Y-m-d') : 'an upcoming date';
+
+            return !empty($item['expired'])
+                ? sprintf('Your GPG key expired on %s', $date)
+                : sprintf('Your GPG key expires on %s', $date);
+        }
+
+        return sprintf('GPG key reminders (%d keys)', count($items));
+    }
+
+    /**
      * Shared setup for reminder methods.
      *
      * @param \App\Model\Entity\Individual $individual Recipient.

@@ -84,10 +84,9 @@ class CheckExpiringKeysCommand extends Command
         $now = new DateTimeImmutable('now', new DateTimeZone('UTC'));
         $rows = $this->loadCandidateKeys();
 
-        $attempted = 0;
-        $succeeded = 0;
+        // Pass 1 — compute which keys cross a threshold this run.
         $skipped = 0;
-
+        $crossings = [];
         foreach ($rows as $row) {
             $expiry = $this->resolveExpiry($row);
             if ($expiry === null) {
@@ -105,6 +104,12 @@ class CheckExpiringKeysCommand extends Command
                 continue;
             }
 
+            $crossings[] = [
+                'row' => $row,
+                'expiry' => $expiry,
+                'threshold' => $crossed,
+                'expired' => $crossed === ReminderSweep::EXPIRED,
+            ];
             $io->out(sprintf(
                 'individual=%s key_id=%d expires=%s threshold=%d',
                 $row->individual->email,
@@ -112,48 +117,167 @@ class CheckExpiringKeysCommand extends Command
                 $expiry->format(DATE_ATOM),
                 $crossed
             ));
+        }
 
-            if ($dryRun) {
-                continue;
-            }
+        // Pass 2 — deliver. Plaintext batches per individual (digest); --encrypt
+        // stays per-key (a digest can only be encrypted to a single key).
+        if ($dryRun) {
+            $mailCount = $encrypt ? count($crossings) : count($this->groupByIndividual($crossings));
+            $io->out(sprintf('Would send %d mail(s) covering %d key(s).', $mailCount, count($crossings)));
+            $io->out(sprintf('Done. attempted=0 sent=0 failed=0 skipped=%d (dry-run)', $skipped));
 
-            $attempted++;
-            try {
-                $this->sendReminder($row, $expiry, $crossed, $encrypt);
-                $row->set('last_reminder_threshold', $crossed);
-                $this->fetchTable('EncryptionKeys')->saveOrFail($row);
-                $succeeded++;
-            } catch (\Throwable $e) {
-                Log::error(sprintf(
-                    'check_expiring_keys: send failed for individual=%s key_id=%d threshold=%d: %s',
-                    $row->individual->email,
-                    (int)$row->id,
-                    $crossed,
-                    $e->getMessage()
-                ));
-                $io->error(sprintf(
-                    '  failed: %s (key_id=%d): %s',
-                    $row->individual->email,
-                    (int)$row->id,
-                    $e->getMessage()
-                ));
-            }
+            return static::CODE_SUCCESS;
+        }
+
+        if ($encrypt) {
+            [$attempted, $succeeded] = $this->dispatchPerKey($crossings, $io);
+        } else {
+            [$attempted, $succeeded] = $this->dispatchDigests($this->groupByIndividual($crossings), $io);
         }
 
         $io->out(sprintf(
-            'Done. attempted=%d sent=%d failed=%d skipped=%d%s',
+            'Done. attempted=%d sent=%d failed=%d skipped=%d',
             $attempted,
             $succeeded,
             $attempted - $succeeded,
-            $skipped,
-            $dryRun ? ' (dry-run)' : ''
+            $skipped
         ));
 
-        if (!$dryRun && $attempted > 0 && $succeeded === 0) {
+        if ($attempted > 0 && $succeeded === 0) {
             return static::CODE_ERROR;
         }
 
         return static::CODE_SUCCESS;
+    }
+
+    /**
+     * Group crossing records by owning individual, preserving the first-seen Individual entity.
+     *
+     * @param array<int, array<string, mixed>> $crossings Records from the compute pass.
+     * @return array<int, array{individual: \App\Model\Entity\Individual, crossings: array<int, array<string, mixed>>}>
+     */
+    protected function groupByIndividual(array $crossings): array
+    {
+        $groups = [];
+        foreach ($crossings as $crossing) {
+            $individual = $crossing['row']->individual;
+            $id = (int)$individual->id;
+            if (!isset($groups[$id])) {
+                $groups[$id] = ['individual' => $individual, 'crossings' => []];
+            }
+            $groups[$id]['crossings'][] = $crossing;
+        }
+
+        return array_values($groups);
+    }
+
+    /**
+     * Plaintext path: one digest mail per individual covering all of their crossing keys.
+     *
+     * @param array<int, array<string, mixed>> $groups Output of groupByIndividual(); each entry is
+     *     `['individual' => Individual, 'crossings' => array<int, array<string, mixed>>]`.
+     * @param \Cake\Console\ConsoleIo $io IO surface.
+     * @return array{0: int, 1: int} [mails attempted, mails succeeded].
+     */
+    protected function dispatchDigests(array $groups, ConsoleIo $io): array
+    {
+        $attempted = 0;
+        $succeeded = 0;
+        foreach ($groups as $group) {
+            $attempted++;
+            $individual = $group['individual'];
+            try {
+                $mailer = new ReminderMailer();
+                $mailer->keyDigest($individual, $this->toDigestItems($group['crossings']));
+                $mailer->deliver();
+                $this->advanceThresholds($group['crossings']);
+                $succeeded++;
+            } catch (\Throwable $e) {
+                $this->reportSendFailure($io, (string)$individual->email, count($group['crossings']), $e);
+            }
+        }
+
+        return [$attempted, $succeeded];
+    }
+
+    /**
+     * Encrypted path: one GPG-encrypted mail per key (no digesting; see reminder-digest-prd.md §2).
+     *
+     * @param array<int, array<string, mixed>> $crossings Records from the compute pass.
+     * @param \Cake\Console\ConsoleIo $io IO surface.
+     * @return array{0: int, 1: int} [mails attempted, mails succeeded].
+     */
+    protected function dispatchPerKey(array $crossings, ConsoleIo $io): array
+    {
+        $attempted = 0;
+        $succeeded = 0;
+        foreach ($crossings as $crossing) {
+            $attempted++;
+            $key = $crossing['row'];
+            try {
+                $mailer = new ReminderMailer();
+                $mailer->keyDigest($key->individual, $this->toDigestItems([$crossing]));
+                (new GpgMailer())->deliverWithGpg($mailer, $key);
+                $this->advanceThresholds([$crossing]);
+                $succeeded++;
+            } catch (\Throwable $e) {
+                $this->reportSendFailure($io, (string)$key->individual->email, 1, $e);
+            }
+        }
+
+        return [$attempted, $succeeded];
+    }
+
+    /**
+     * Persist the recorded threshold for every key covered by a successful send.
+     *
+     * @param array<int, array<string, mixed>> $crossings Records whose keys were just reminded.
+     * @return void
+     */
+    protected function advanceThresholds(array $crossings): void
+    {
+        $table = $this->fetchTable('EncryptionKeys');
+        foreach ($crossings as $crossing) {
+            $row = $crossing['row'];
+            $row->set('last_reminder_threshold', $crossing['threshold']);
+            $table->saveOrFail($row);
+        }
+    }
+
+    /**
+     * Map internal crossing records to the digest item shape `ReminderMailer::keyDigest()` expects.
+     *
+     * @param array<int, array<string, mixed>> $crossings Crossing records.
+     * @return array<int, array{key: \App\Model\Entity\EncryptionKey, expiry: \DateTimeImmutable, expired: bool, threshold: int}>
+     */
+    protected function toDigestItems(array $crossings): array
+    {
+        return array_map(fn($crossing) => [
+            'key' => $crossing['row'],
+            'expiry' => $crossing['expiry'],
+            'expired' => $crossing['expired'],
+            'threshold' => $crossing['threshold'],
+        ], $crossings);
+    }
+
+    /**
+     * Log and surface a per-recipient send failure without aborting the sweep.
+     *
+     * @param \Cake\Console\ConsoleIo $io IO surface.
+     * @param string $email Recipient address.
+     * @param int $keyCount Number of keys the failed mail covered.
+     * @param \Throwable $e The failure.
+     * @return void
+     */
+    protected function reportSendFailure(ConsoleIo $io, string $email, int $keyCount, \Throwable $e): void
+    {
+        Log::error(sprintf(
+            'check_expiring_keys: send failed for individual=%s keys=%d: %s',
+            $email,
+            $keyCount,
+            $e->getMessage()
+        ));
+        $io->error(sprintf('  failed: %s (%d key(s)): %s', $email, $keyCount, $e->getMessage()));
     }
 
     /**
@@ -311,32 +435,5 @@ class CheckExpiringKeysCommand extends Command
         $diff = $expiry->getTimestamp() - $now->getTimestamp();
 
         return (int)floor($diff / 86400);
-    }
-
-    /**
-     * Build a `ReminderMailer` for the right reminder type and dispatch it.
-     *
-     * @param \App\Model\Entity\EncryptionKey $key Row under reminder.
-     * @param \DateTimeImmutable $expiry Computed expiry instant.
-     * @param int $threshold Crossed threshold value (positive days, or `ReminderSweep::EXPIRED`).
-     * @param bool $encrypt Whether to route the send through `GpgMailer::deliverWithGpg`.
-     * @return void
-     * @throws \App\Lib\Tools\SendEmailException When the send pipeline fails.
-     */
-    protected function sendReminder(EncryptionKey $key, DateTimeImmutable $expiry, int $threshold, bool $encrypt): void
-    {
-        $individual = $key->individual;
-        $mailer = new ReminderMailer();
-        if ($threshold === ReminderSweep::EXPIRED) {
-            $mailer->keyExpired($individual, $key, $expiry);
-        } else {
-            $mailer->keyExpiry($individual, $key, $expiry);
-        }
-
-        if ($encrypt) {
-            (new GpgMailer())->deliverWithGpg($mailer, $key);
-        } else {
-            $mailer->deliver();
-        }
     }
 }

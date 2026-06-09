@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace App\Test\TestCase\Lib\Tools;
 
 use App\Lib\Tools\EmailRenderer;
+use App\Lib\Tools\ReminderSweep;
 use App\Lib\Tools\SendEmailException;
 use App\Model\Entity\EncryptionKey;
 use App\Model\Entity\Individual;
@@ -59,6 +60,64 @@ class EmailRendererTest extends TestCase
         $this->assertNotNull($out['subject']);
         $this->assertStringContainsString('expired', strtolower((string)$out['subject']));
         $this->assertStringContainsString('2026-07-04', $out['html']);
+    }
+
+    /**
+     * @return void
+     */
+    public function testRendersDigestTemplateWithMixedStatuses(): void
+    {
+        $items = [
+            [
+                'key' => new EncryptionKey(['id' => 42]),
+                'expiry' => new DateTimeImmutable('2026-07-04 12:00:00', new DateTimeZone('UTC')),
+                'expired' => false,
+                'threshold' => 7,
+            ],
+            [
+                'key' => new EncryptionKey(['id' => 99]),
+                'expiry' => new DateTimeImmutable('2026-05-30 09:00:00', new DateTimeZone('UTC')),
+                'expired' => true,
+                'threshold' => ReminderSweep::EXPIRED,
+            ],
+        ];
+        $out = (new EmailRenderer())->render('reminder_key_digest', [
+            'individual' => new Individual([
+                'first_name' => 'Alice',
+                'last_name' => 'Tester',
+                'email' => 'alice@example.org',
+            ]),
+            'items' => $items,
+        ]);
+
+        $this->assertNotNull($out['html']);
+        $this->assertNotEmpty(trim($out['text']));
+        $this->assertSame('GPG key reminders (2 keys)', $out['subject']);
+        $this->assertStringContainsString('42', $out['text']);
+        $this->assertStringContainsString('99', $out['text']);
+        $this->assertStringContainsString('Alice', $out['html']);
+    }
+
+    /**
+     * A single-key digest must keep the legacy single-key subject (N=1 parity).
+     *
+     * @return void
+     */
+    public function testDigestTemplateKeepsSingleKeySubject(): void
+    {
+        $out = (new EmailRenderer())->render('reminder_key_digest', [
+            'individual' => new Individual(['first_name' => 'Bob', 'email' => 'bob@example.org']),
+            'items' => [
+                [
+                    'key' => new EncryptionKey(['id' => 7]),
+                    'expiry' => new DateTimeImmutable('2026-07-04 12:00:00', new DateTimeZone('UTC')),
+                    'expired' => false,
+                    'threshold' => 7,
+                ],
+            ],
+        ]);
+
+        $this->assertSame('Your GPG key expires on 2026-07-04', $out['subject']);
     }
 
     /**
