@@ -402,6 +402,14 @@ class CerebrateSettingsProvider extends BaseSettingsProvider
                             'default' => '',
                             'description' => __('List of user metafields to push to keycloak as attributes. When using multiple templates, the attribute names have to be unique. Expects a comma separated list.'),
                             'dependsOn' => 'keycloak.enabled'
+                        ],
+                        'keycloak.org_meta_mapping' => [
+                            'name' => 'Organisation Meta-field attribute mapping',
+                            'type' => 'string',
+                            'severity' => 'info',
+                            'default' => '',
+                            'description' => __('List of organisation metafields (of the user\'s organisation) to push to keycloak as user attributes. Comma separated list of meta-field names; each entry may optionally be given an explicit keycloak attribute name with "field=attribute" (required when the field name is not a valid attribute/claim name, e.g. contains spaces). When omitted, the attribute name is derived by lowercasing the field and replacing non-alphanumeric characters with underscores. Example: country-name=country_name,ISO 3166-1 Code=iso_3166_1_code,cra_designated_csirt'),
+                            'dependsOn' => 'keycloak.enabled'
                         ]
                     ]
                 ]
