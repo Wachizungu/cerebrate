@@ -22,15 +22,38 @@ Once per run, the sweep:
 3. Computes whether the key has just crossed a configured threshold
    (default `30, 7, 1` days before expiry, plus an "expired" bucket
    once the key passes its expiry date).
-4. For each crossed threshold, dispatches a `ReminderMailer` send —
-   `keyExpiry()` while the key is still valid, `keyExpired()` once
-   it has passed expiry.
+4. Groups every key that crossed a threshold this run by its owning
+   individual and sends that individual a single **digest** mail: a
+   table listing each affected key with its status ("expires on …" or
+   "EXPIRED on …"). One recipient receives one mail per run, no matter
+   how many of their keys are in the window.
 5. On a successful send, advances `encryption_keys.last_reminder_threshold`
-   so the same threshold is never re-sent.
+   on every key the digest covered, so the same threshold is never
+   re-sent.
 
 The sweep does **not** notify operators about the server's own
 signing key, and does **not** notify on organization-owned keys (no
 canonical email-of-record for an organization).
+
+---
+
+## Digests
+
+Reminders are **batched per recipient**. If an individual owns several
+keys that cross a threshold in the same run — say one expiring in seven
+days and another that expired last week — they receive a single mail
+with a table of all of them, each row tagged as expiring or already
+expired, instead of one mail per key.
+
+Batching does not change idempotency: `last_reminder_threshold` is still
+tracked and advanced **per key**, never per recipient. A digest advances
+only the keys it actually covered; if the send fails, none of them
+advance and they are retried on the next run. A failure for one
+recipient never blocks another's digest.
+
+The one exception is `--encrypt` (see below): an encrypted mail can only
+be addressed to a single key, so in encrypted mode the sweep sends one
+mail per key rather than a per-recipient digest.
 
 ---
 
@@ -74,8 +97,10 @@ locally without permission surprises.
   rolling them out.
 - `--encrypt` — Encrypt each reminder to the recipient's PGP key
   using the same `GpgMailer` pipeline as the rest of the mailer.
-  Without this flag, reminders are signed-only (if `gpg_sign` is on)
-  or plain (if not).
+  Because an encrypted mail can only target one key, this mode sends
+  one mail per key instead of a per-recipient digest. Without this
+  flag, reminders are signed-only (if `gpg_sign` is on) or plain
+  (if not).
 
 The command's exit code is `0` if every attempted send succeeded
 (or if there was nothing to do), and non-zero only when **every**
@@ -164,14 +189,27 @@ looks like:
 
 ```
 individual=alice@example.org key_id=42 expires=2026-12-01T00:00:00+00:00 threshold=7
-individual=bob@example.org key_id=99 expires=2026-04-30T00:00:00+00:00 threshold=-1
+individual=alice@example.org key_id=51 expires=2026-04-30T00:00:00+00:00 threshold=-1
+individual=bob@example.org key_id=99 expires=2026-12-05T00:00:00+00:00 threshold=7
 Done. attempted=2 sent=2 failed=0 skipped=12
 ```
 
-`attempted` counts sends initiated, `sent` counts deliveries that
-succeeded, `failed` is the difference, and `skipped` covers rows
-that produced no threshold crossing (out of window, unparseable
-blob, missing email, etc.).
+The per-key lines list every key that crossed a threshold this run
+(here Alice has two — one expiring, one already expired). `attempted`
+and `sent` count **mails** — one digest per recipient, or one per key
+under `--encrypt` — so they can be lower than the number of per-key
+lines when a recipient owns several expiring keys (above: three keys,
+two mails). `failed` is the difference, and `skipped` covers rows that
+produced no threshold crossing (out of window, unparseable blob,
+missing email, etc.).
+
+A `--dry-run` still prints the per-key lines, then a preview and a
+no-op summary instead of sending:
+
+```
+Would send 2 mail(s) covering 3 key(s).
+Done. attempted=0 sent=0 failed=0 skipped=12 (dry-run)
+```
 
 ---
 

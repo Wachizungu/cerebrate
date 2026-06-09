@@ -16,3 +16,14 @@ To upgrade the database, login to the webinterface as administrator and call
 http://cerebrate.local:8000/instance/migrationIndex
 Also available from the menu in the interface as "Database migration".
 Run all available upgrades.
+
+## Optional features: outbound email & reminders
+
+Cerebrate includes an optional outbound email subsystem and a PGP
+key-expiry reminder sweep. Both are **disabled by default** and require
+explicit opt-in — an SMTP transport, a `from` address, and, for the
+sweep, a cron entry — so an upgrade never starts sending mail on its
+own. After running the database migrations above, see the "Email and
+reminders" section of [`INSTALL.md`](INSTALL.md) and the operator guides
+under `docs/admin/` ([`email.md`](../docs/admin/email.md),
+[`reminder-sweep.md`](../docs/admin/reminder-sweep.md)) to enable them.
