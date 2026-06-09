@@ -19,7 +19,7 @@ Five sweep commits on `origin/develop`:
 | `cd4da34d` | `App\Command\CheckExpiringKeysCommand` + `App\Lib\Tools\ReminderSweep` helper + the `Cerebrate.reminders.default_thresholds` settings entry. |
 | `be049db5` | `docs/admin/reminder-sweep.md` operator guide. |
 
-Plus the digest follow-up (`develop`, not yet pushed at time of writing):
+Plus the digest follow-up on `origin/develop`:
 
 | Commit     | Scope |
 |------------|---|
