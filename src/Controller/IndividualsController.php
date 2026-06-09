@@ -44,7 +44,7 @@ class IndividualsController extends AppController
                 if (!$this->Individuals->Organisations->canUserSeeOtherOrganisations($this->ACL->getUser())) {
                     $query->matching('Alignments', function ($q) use ($administeredOrgs) {
                         return $q->where(['Alignments.organisation_id IN' => $administeredOrgs]);
-                    });
+                    })->distinct();
                 }
                 return $query;
             },

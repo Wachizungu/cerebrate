@@ -9,6 +9,8 @@ class TextType
     public const OPERATORS = ['=', '!='];
     public const TYPE = 'text';
 
+    protected $MetaFields;
+
     public function __construct()
     {
         $this->MetaFields = TableRegistry::getTableLocator()->get('MetaFields');

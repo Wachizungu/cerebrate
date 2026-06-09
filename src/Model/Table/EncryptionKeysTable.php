@@ -50,6 +50,27 @@ class EncryptionKeysTable extends AppTable
         }
     }
 
+    /**
+     * Reset the reminder cadence whenever the underlying key material changes
+     * (new upload, key rotation, expiry extension, etc.). The next sweep run
+     * will treat the new blob as a fresh key and re-evaluate thresholds against
+     * its current expiry.
+     *
+     * @param \Cake\Event\EventInterface $event Fired save event.
+     * @param \Cake\Datasource\EntityInterface $entity Row being saved.
+     * @param \ArrayObject $options Save-time options array.
+     * @return void
+     */
+    public function beforeSave(
+        EventInterface $event,
+        \Cake\Datasource\EntityInterface $entity,
+        ArrayObject $options
+    ): void {
+        if (!$entity->isNew() && $entity->isDirty('encryption_key')) {
+            $entity->set('last_reminder_threshold', null);
+        }
+    }
+
     public function validationDefault(Validator $validator): Validator
     {
         $validator
@@ -90,11 +111,23 @@ class EncryptionKeysTable extends AppTable
             }
 
             $key = $keys[0];
-            $result[4] = $key->getPrimaryKey()->getFingerprint();
+            $primaryKey = $key->getPrimaryKey();
+            $subKeys = $key->getSubKeys();
+            if ($primaryKey === null || empty($subKeys)) {
+                // The key was read by GnuPG but parsed into no usable subkeys. This is
+                // typically not a Cerebrate issue but the local GnuPG rejecting the key's
+                // algorithm or curve - e.g. a Brainpool key on a host in FIPS mode or under
+                // a restrictive system-wide crypto policy (common on RHEL). Surface that
+                // explicitly instead of the generic "no valid subkey" message (or a fatal
+                // on the null primary key).
+                $result[2] = __('The PGP key could be read but exposes no usable subkeys. This usually means the local GnuPG installation rejected the key\'s algorithm or curve (for example a Brainpool key on a host running in FIPS mode or under a restrictive system-wide crypto policy). On this host, check it with `gpg --import-options show-only --with-colons --import <keyfile>` and review `update-crypto-policies --show` / FIPS status.');
+                return $result;
+            }
+            $result[4] = $primaryKey->getFingerprint();
             $result[5] = $result[4];
 
             $sortedKeys = ['valid' => 0, 'expired' => 0, 'noEncrypt' => 0];
-            foreach ($key->getSubKeys() as $subKey) {
+            foreach ($subKeys as $subKey) {
                 $expiration = $subKey->getExpirationDate();
                 if ($expiration != 0 && $currentTimestamp > $expiration) {
                     $sortedKeys['expired']++;

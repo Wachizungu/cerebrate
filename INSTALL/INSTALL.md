@@ -185,3 +185,32 @@ To log in use the default credentials below:
 
 - Username: admin
 - Password: Password1234
+
+## Email and reminders (optional)
+
+Cerebrate can send outbound email — currently used for PGP key-expiry
+reminders to individuals. **It is disabled by default**: with no `from`
+address configured nothing is ever sent, so a fresh install (or an
+upgrade) never emails anyone until you explicitly opt in.
+
+To enable outbound email:
+
+1. Configure an SMTP transport in `config/app_local.php` under
+   `EmailTransport.default` (host, port, credentials). This is a
+   deployment concern and lives outside the Settings UI.
+2. Set the `Cerebrate.email.*` settings through the admin Settings UI
+   (Administration → Settings, under *Application → Network → Email*) —
+   at minimum a `from` address. Optionally configure a server GPG
+   signing key, and `only_encrypted` to refuse sending to recipients
+   without a usable key. Full guide: [`../docs/admin/email.md`](../docs/admin/email.md).
+
+To turn on the scheduled PGP key-expiry reminder sweep, add a cron
+entry — it is **not** installed automatically:
+
+```
+0 7 * * *  www-data  cd /var/www/cerebrate && ./bin/cake check_expiring_keys
+```
+
+Run `./bin/cake check_expiring_keys --dry-run` first to preview exactly
+who would be mailed without sending anything. Full operator guide:
+[`../docs/admin/reminder-sweep.md`](../docs/admin/reminder-sweep.md).

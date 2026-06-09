@@ -29,6 +29,104 @@ class AuthKeycloakBehavior extends Behavior
         return explode(',', $mappers);
     }
 
+    /*
+     * Parse the keycloak.org_meta_mapping setting into a [field => attribute] map.
+     * Each comma separated entry is either a plain meta-field name (the keycloak
+     * attribute name is then derived by sanitising the field name) or an explicit
+     * "field=attribute" pair, allowing field names that aren't keycloak-safe (e.g.
+     * "ISO 3166-1 Code") to be exposed under a clean attribute/claim name. The
+     * resulting attribute is always namespaced with an "org_" prefix so it cannot
+     * collide with a user meta-field attribute that happens to share the name.
+     */
+    public function getMappedOrgFields(): array
+    {
+        $raw = Configure::read('keycloak.org_meta_mapping');
+        if (empty($raw)) {
+            return [];
+        }
+        $result = [];
+        foreach (explode(',', $raw) as $entry) {
+            $entry = trim($entry);
+            if ($entry === '') {
+                continue;
+            }
+            if (strpos($entry, '=') !== false) {
+                [$field, $attribute] = explode('=', $entry, 2);
+                $field = trim($field);
+                $attribute = $this->sanitiseAttributeName(trim($attribute));
+            } else {
+                $field = $entry;
+                $attribute = $this->sanitiseAttributeName($entry);
+            }
+            if ($field !== '' && $attribute !== '') {
+                // Namespace org attributes under an "org_" prefix so they can't
+                // collide with a user meta-field attribute that shares the name.
+                $result[$field] = 'org_' . $attribute;
+            }
+        }
+        return $result;
+    }
+
+    private function sanitiseAttributeName(string $name): string
+    {
+        $name = mb_strtolower($name);
+        $name = preg_replace('/[^a-z0-9]+/', '_', $name);
+        return trim($name, '_');
+    }
+
+    /*
+     * Batch-load the organisation-scoped meta-fields for the given org ids.
+     * Returns [orgId => [field => value]]. Used to push org attributes to keycloak
+     * without an N+1 query per user (org fields are shared across an org's users).
+     */
+    private function getOrgMetaFieldsByOrgIds(array $orgIds): array
+    {
+        $orgIds = array_values(array_unique(array_filter($orgIds)));
+        if (empty($orgIds)) {
+            return [];
+        }
+        // Query the MetaFields table directly rather than via the Users->MetaFields
+        // association, whose find() would bake in a conflicting scope = 'user' condition.
+        $metaFields = $this->_table->getTableLocator()->get('MetaFields')->find()
+            ->where([
+                'MetaFields.scope' => 'organisation',
+                'MetaFields.parent_id IN' => $orgIds,
+            ])
+            ->select(['MetaFields.field', 'MetaFields.parent_id', 'MetaFields.value'])
+            ->disableHydration()
+            ->toArray();
+        $result = [];
+        foreach ($metaFields as $metaField) {
+            $result[$metaField['parent_id']][$metaField['field']] = $metaField['value'];
+        }
+        return $result;
+    }
+
+    /*
+     * Build the [attribute => value] map of org meta-fields for a single user.
+     * Reads from a pre-populated $user['org_meta_fields'] when available (full sync),
+     * otherwise fetches the user's organisation meta-fields on demand (enrol/update).
+     */
+    private function buildOrgAttributes(array $user): array
+    {
+        $orgFields = $this->getMappedOrgFields();
+        if (empty($orgFields)) {
+            return [];
+        }
+        if (isset($user['org_meta_fields'])) {
+            $orgMetaFields = $user['org_meta_fields'];
+        } else {
+            $orgId = $user['organisation']['id'] ?? null;
+            $fetched = $this->getOrgMetaFieldsByOrgIds([$orgId]);
+            $orgMetaFields = ($orgId && isset($fetched[$orgId])) ? $fetched[$orgId] : [];
+        }
+        $attributes = [];
+        foreach ($orgFields as $field => $attribute) {
+            $attributes[$attribute] = $orgMetaFields[$field] ?? '';
+        }
+        return $attributes;
+    }
+
     public function getUser(EntityInterface $profile, Session $session)
     {
         $userId = $session->read('Auth.User.id');
@@ -341,7 +439,11 @@ class AuthKeycloakBehavior extends Behavior
         $response = $this->restApiRequest('%s/admin/realms/%s/users/?max=999999', [], 'get');
         $keycloakUsers = json_decode($response->getStringBody(), true);
         $keycloakUsersParsed = [];
-        $mappers = array_merge(['role_name', 'role_uuid', 'org_uuid', 'org_name'], $this->getMappedFieldList());
+        $mappers = array_merge(
+            ['role_name', 'role_uuid', 'org_uuid', 'org_name'],
+            $this->getMappedFieldList(),
+            array_values($this->getMappedOrgFields())
+        );
         foreach ($keycloakUsers as $u) {
             $attributes = [];
             $keycloakUsersParsed[$u['username']] = [
@@ -374,11 +476,12 @@ class AuthKeycloakBehavior extends Behavior
             'Individuals.uuid',
             'Roles.name',
             'Roles.uuid',
+            'Organisations.id',
             'Organisations.name',
             'Organisations.uuid'
         ]);
         if ($id) {
-            $query->where(['User.id' => $id]);
+            $query->where(['Users.id' => $id]);
         }
         $results = $query->disableHydration()->toArray();
         foreach ($results as &$result) {
@@ -390,6 +493,17 @@ class AuthKeycloakBehavior extends Behavior
                 $result['meta_fields'] = $temp;
             }
         }
+        unset($result);
+        $orgMetaByOrgId = $this->getOrgMetaFieldsByOrgIds(
+            array_map(function ($result) {
+                return $result['organisation']['id'] ?? null;
+            }, $results)
+        );
+        foreach ($results as &$result) {
+            $orgId = $result['organisation']['id'] ?? null;
+            $result['org_meta_fields'] = ($orgId && isset($orgMetaByOrgId[$orgId])) ? $orgMetaByOrgId[$orgId] : [];
+        }
+        unset($result);
         return $results;
     }
 
@@ -429,6 +543,9 @@ class AuthKeycloakBehavior extends Behavior
             }
             foreach ($custom_mappers as $mapper) {
                 $change['attributes'][$mapper] = $user['meta_fields'][$mapper] ?? '';
+            }
+            foreach ($this->buildOrgAttributes($user) as $attribute => $value) {
+                $change['attributes'][$attribute] = $value;
             }
             $response = $this->restApiRequest('%s/admin/realms/%s/users/' . $keycloakUser['id'], $change, 'put');
             if (!$response->isOk()) {
@@ -509,7 +626,17 @@ class AuthKeycloakBehavior extends Behavior
                 ];
             }
         }
-        if ($condEnabled || $condFirstname || $condLastname || $condEmail || $condRolename || $condRoleuuid || $condOrgname || $condOrguuid || $condMapped) {
+        $condOrgMapped = false;
+        foreach ($this->buildOrgAttributes($user) as $attribute => $value) {
+            if (($keycloakUser['attributes'][$attribute] ?? '') != ($value ?? '')) {
+                $condOrgMapped = true;
+                $differences[$attribute] = [
+                    'keycloak' => $keycloakUser['attributes'][$attribute] ?? '',
+                    'cerebrate' => $value
+                ];
+            }
+        }
+        if ($condEnabled || $condFirstname || $condLastname || $condEmail || $condRolename || $condRoleuuid || $condOrgname || $condOrguuid || $condMapped || $condOrgMapped) {
             if ($condEnabled) {
                 $differences['enabled'] = ['keycloak' => $keycloakUser['enabled'], 'cerebrate' => $user['disabled']];
             }
@@ -554,6 +681,9 @@ class AuthKeycloakBehavior extends Behavior
                 'org_uuid' => $user['organisation']['uuid']
             ]
         ];
+        foreach ($this->buildOrgAttributes($user) as $attribute => $value) {
+            $newUser['attributes'][$attribute] = $value;
+        }
         $response = $this->restApiRequest('%s/admin/realms/%s/users', $newUser, 'post');
         if (!$response->isOk()) {
             $this->_table->auditLogs()->insert([
@@ -604,7 +734,10 @@ class AuthKeycloakBehavior extends Behavior
             'role_name' => 0,
             'role_uuid' => 0
         ];
-        $mappersToEnable = explode(',', Configure::read('keycloak.user_meta_mapping'));
+        $mappersToEnable = array_filter(array_map('trim', array_merge(
+            explode(',', (string)Configure::read('keycloak.user_meta_mapping')),
+            array_values($this->getMappedOrgFields())
+        )));
         foreach ($mappers as $mapper) {
             if ($mapper['protocolMapper'] !== 'oidc-usermodel-attribute-mapper') {
                 continue;

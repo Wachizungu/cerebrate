@@ -10,7 +10,13 @@
     if (!empty($field['url_data_path'])) {
         $url_data_path = $this->Hash->extract($row, $field['url_data_path'])[0];
     }
-    if (!empty($field['url']) && count($data) > 0) {
+    if (!empty($field['count_key'])) {
+        $uniqueKeys = array_unique($this->Hash->extract($row, $field['data_path'] . '.{n}.' . $field['count_key']));
+        $count = count($uniqueKeys);
+    } else {
+        $count = count($data);
+    }
+    if (!empty($field['url']) && $count > 0) {
         if (!empty($url_data_path)) {
             $field['url'] = str_replace('{{url_data}}', $url_data_path, $field['url']);
         }
@@ -18,9 +24,9 @@
             '<a href="%s%s">%s</a>',
             $baseurl,
             h($field['url']),
-            count($data)
+            $count
         );
     } else {
-        echo count($data);
+        echo $count;
     }
 ?>

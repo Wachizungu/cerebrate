@@ -177,6 +177,92 @@ class CerebrateSettingsProvider extends BaseSettingsProvider
                             'empty' => true
                         ],
                     ],
+                    'Email' => [
+                        '_description' => __('Outbound email settings used by Cerebrate notifications (e.g. PGP key expiry reminders). SMTP transport itself is configured in app_local.php under EmailTransport.default.'),
+                        '_icon' => 'envelope',
+                        'Cerebrate.email.from' => [
+                            'name' => __('From address'),
+                            'type' => 'string',
+                            'severity' => 'warning',
+                            'description' => __('The envelope and header From address used for all outbound mail. Leave empty to disable outbound email until configured.'),
+                            'default' => '',
+                            'empty' => true,
+                        ],
+                        'Cerebrate.email.from_name' => [
+                            'name' => __('From display name'),
+                            'type' => 'string',
+                            'severity' => 'info',
+                            'description' => __('Optional display name used alongside the From address.'),
+                            'default' => 'Cerebrate',
+                            'empty' => true,
+                        ],
+                        'Cerebrate.email.reply_to' => [
+                            'name' => __('Reply-To address'),
+                            'type' => 'string',
+                            'severity' => 'info',
+                            'description' => __('Optional Reply-To address. Leave empty to omit the header.'),
+                            'default' => '',
+                            'empty' => true,
+                        ],
+                        'Cerebrate.email.disable' => [
+                            'name' => __('Disable outbound email'),
+                            'type' => 'boolean',
+                            'severity' => 'info',
+                            'description' => __('When enabled, all outbound mail is routed through the Debug transport and never leaves the box. Useful for development and tests.'),
+                            'default' => false,
+                        ],
+                        'Cerebrate.email.gpg_sign' => [
+                            'name' => __('Sign outbound mail with GPG'),
+                            'type' => 'boolean',
+                            'severity' => 'info',
+                            'description' => __('When enabled, outbound mail is signed with the configured server GPG key (PGP/MIME, RFC 3156).'),
+                            'default' => false,
+                        ],
+                        'Cerebrate.email.gpg_signing_key' => [
+                            'name' => __('GPG signing key'),
+                            'type' => 'string',
+                            'severity' => 'info',
+                            'description' => __('Email or fingerprint identifying the server signing key in the GPG home directory used by Cerebrate.'),
+                            'default' => '',
+                            'dependsOn' => 'Cerebrate.email.gpg_sign',
+                            'empty' => true,
+                        ],
+                        'Cerebrate.email.gpg_signing_passphrase' => [
+                            'name' => __('GPG signing key passphrase'),
+                            'type' => 'string',
+                            'severity' => 'info',
+                            'description' => __('Passphrase used to unlock the server signing key.'),
+                            'default' => '',
+                            'dependsOn' => 'Cerebrate.email.gpg_sign',
+                            'empty' => true,
+                        ],
+                        'Cerebrate.email.gpg_obscure_subject' => [
+                            'name' => __('Obscure subject when signed and encrypted'),
+                            'type' => 'boolean',
+                            'severity' => 'info',
+                            'description' => __('When the message is both signed and encrypted, replace the outer subject with "..." so the subject is only visible inside the protected (signed) headers.'),
+                            'default' => false,
+                            'dependsOn' => 'Cerebrate.email.gpg_sign',
+                        ],
+                        'Cerebrate.email.only_encrypted' => [
+                            'name' => __('Refuse to send unencrypted mail'),
+                            'type' => 'boolean',
+                            'severity' => 'warning',
+                            'description' => __('When enabled, Cerebrate refuses to send any mail that could not be encrypted to the recipient. Use only if every intended recipient has a valid GPG key on file.'),
+                            'default' => false,
+                        ],
+                    ],
+                    'Reminders' => [
+                        '_description' => __('Scheduled reminder behavior for individual PGP keys (consumed by the `check_expiring_keys` cron command).'),
+                        '_icon' => 'clock',
+                        'Cerebrate.reminders.default_thresholds' => [
+                            'name' => __('Reminder thresholds (days before expiry)'),
+                            'type' => 'string',
+                            'severity' => 'info',
+                            'description' => __('Comma-separated positive integers. The sweep fires one reminder per threshold crossing per key (e.g. "30,7,1" sends at 30, 7, and 1 days before expiry, plus an "expired" notice once the key passes its expiry). Overridable per-run via `--thresholds`.'),
+                            'default' => '30,7,1',
+                        ],
+                    ],
                 ],
                 'UI' => [
                     'General' => [
@@ -315,6 +401,14 @@ class CerebrateSettingsProvider extends BaseSettingsProvider
                             'severity' => 'info',
                             'default' => '',
                             'description' => __('List of user metafields to push to keycloak as attributes. When using multiple templates, the attribute names have to be unique. Expects a comma separated list.'),
+                            'dependsOn' => 'keycloak.enabled'
+                        ],
+                        'keycloak.org_meta_mapping' => [
+                            'name' => 'Organisation Meta-field attribute mapping',
+                            'type' => 'string',
+                            'severity' => 'info',
+                            'default' => '',
+                            'description' => __('List of organisation metafields (of the user\'s organisation) to push to keycloak as user attributes. Comma separated list of meta-field names; each entry may optionally be given an explicit attribute name with "field=attribute". The resulting keycloak attribute/claim is sanitised (lowercased, non-alphanumeric characters replaced with underscores) and namespaced with an "org_" prefix so it cannot collide with user attributes. Example: "country-name,ISO 3166-1 Code=iso_3166_1_code,cra_designated_csirt" produces the claims org_country_name, org_iso_3166_1_code and org_cra_designated_csirt.'),
                             'dependsOn' => 'keycloak.enabled'
                         ]
                     ]
