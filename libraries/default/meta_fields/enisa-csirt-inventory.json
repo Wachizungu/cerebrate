@@ -61,6 +61,10 @@
             "type": "text"
         },
         {
+            "field": "cra_designated_csirt",
+            "type": "boolean"
+        },
+        {
             "field": "key",
             "type": "text"
         }
@@ -70,5 +74,5 @@
     "scope": "organisation",
     "source": "enisa.europa.eu/topics/csirts-in-europe/csirt-inventory/certs-by-country-interactive-map",
     "uuid": "089c68c7-d97e-4f21-a798-159cd10f7864",
-    "version": 2
+    "version": 3
 }
