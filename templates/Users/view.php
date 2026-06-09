@@ -95,7 +95,7 @@ echo $this->element(
                 'title' => __('Authentication keys')
             ],
             [
-                'url' => '/EncryptionKeys/index?owner_id={{0}}',
+                'url' => '/EncryptionKeys/index?owner_id={{0}}&owner_model=individual',
                 'url_params' => ['individual_id'],
                 'title' => __('Encryption keys')
             ],
