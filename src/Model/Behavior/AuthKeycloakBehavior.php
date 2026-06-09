@@ -34,7 +34,9 @@ class AuthKeycloakBehavior extends Behavior
      * Each comma separated entry is either a plain meta-field name (the keycloak
      * attribute name is then derived by sanitising the field name) or an explicit
      * "field=attribute" pair, allowing field names that aren't keycloak-safe (e.g.
-     * "ISO 3166-1 Code") to be exposed under a clean attribute/claim name.
+     * "ISO 3166-1 Code") to be exposed under a clean attribute/claim name. The
+     * resulting attribute is always namespaced with an "org_" prefix so it cannot
+     * collide with a user meta-field attribute that happens to share the name.
      */
     public function getMappedOrgFields(): array
     {
@@ -57,7 +59,9 @@ class AuthKeycloakBehavior extends Behavior
                 $attribute = $this->sanitiseAttributeName($entry);
             }
             if ($field !== '' && $attribute !== '') {
-                $result[$field] = $attribute;
+                // Namespace org attributes under an "org_" prefix so they can't
+                // collide with a user meta-field attribute that shares the name.
+                $result[$field] = 'org_' . $attribute;
             }
         }
         return $result;
@@ -477,7 +481,7 @@ class AuthKeycloakBehavior extends Behavior
             'Organisations.uuid'
         ]);
         if ($id) {
-            $query->where(['User.id' => $id]);
+            $query->where(['Users.id' => $id]);
         }
         $results = $query->disableHydration()->toArray();
         foreach ($results as &$result) {
