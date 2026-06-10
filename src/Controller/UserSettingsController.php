@@ -80,7 +80,7 @@ class UserSettingsController extends AppController
         }
         $this->CRUD->add([
             'redirect' => ['action' => 'index', $user_id],
-            'beforeSave' => function ($data) use ($currentUser, $validUsers) {
+            'beforeSave' => function ($data) use ($validUsers) {
                 if (!in_array($data['user_id'], array_keys($validUsers))) {
                     throw new MethodNotAllowedException(__('You cannot edit the given user.'));
                 }
@@ -90,8 +90,8 @@ class UserSettingsController extends AppController
                 if (!empty($existingSetting)) {
                     throw new MethodNotAllowedException(__('You cannot create a setting that already exists for the given user.'));
                 }
-                $validationResult = $this->UserSettings->validateUserSetting($data, $currentUser);
-                if (!$validationResult !== true) {
+                $validationResult = $this->UserSettings->validateUserSetting($data);
+                if ($validationResult !== true) {
                     throw new MethodNotAllowedException(__('You cannot create the given user setting. Reason: {0}', $validationResult));
                 }
                 return $data;
@@ -113,6 +113,9 @@ class UserSettingsController extends AppController
         $entity = $this->UserSettings->find()->where([
             'id' => $id
         ])->first();
+        if (empty($entity)) {
+            throw new NotFoundException(__('Invalid {0}.', 'user setting'));
+        }
 
         $currentUser = $this->ACL->getUser();
         $validUsers = [];
