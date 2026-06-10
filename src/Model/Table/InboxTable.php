@@ -46,6 +46,28 @@ class InboxTable extends AppTable
         return $schema;
     }
 
+    public const REDACTED_DATA_FIELDS = ['password', 'authkey'];
+
+    /**
+     * Mask credential material stored in the message payload (e.g. the hashed
+     * password from a self-registration request) so it never reaches any view
+     * or API response. The stored value is left untouched, as processors
+     * (e.g. user registration) still need it.
+     */
+    public function redactSensitiveData($entity)
+    {
+        if (!empty($entity->data) && is_array($entity->data)) {
+            $data = $entity->data;
+            foreach (self::REDACTED_DATA_FIELDS as $field) {
+                if (isset($data[$field])) {
+                    $data[$field] = '*****';
+                }
+            }
+            $entity->data = $data;
+        }
+        return $entity;
+    }
+
     public function validationDefault(Validator $validator): Validator
     {
         $validator

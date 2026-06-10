@@ -136,7 +136,10 @@ class InboxController extends AppController
                     ],
                 ],
             ],
-            'contain' => $this->containFields
+            'contain' => $this->containFields,
+            'afterFind' => function ($entity) {
+                return $this->Inbox->redactSensitiveData($entity);
+            }
         ]);
         $responsePayload = $this->CRUD->getResponsePayload();
         if (!empty($responsePayload)) {
@@ -151,7 +154,11 @@ class InboxController extends AppController
 
     public function view($id)
     {
-        $this->CRUD->view($id);
+        $this->CRUD->view($id, [
+            'afterFind' => function ($entity) {
+                return $this->Inbox->redactSensitiveData($entity);
+            }
+        ]);
         $responsePayload = $this->CRUD->getResponsePayload();
         if (!empty($responsePayload)) {
             return $responsePayload;

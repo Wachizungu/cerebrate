@@ -33,4 +33,14 @@ class IndexInboxApiTest extends TestCase
         $this->assertResponseContains(sprintf('"uuid": "%s"', InboxFixture::INBOX_USER_REGISTRATION_UUID));
         $this->assertResponseContains(sprintf('"uuid": "%s"', InboxFixture::INBOX_INCOMING_CONNECTION_REQUEST_UUID));
     }
+
+    public function testIndexInboxRedactsRegistrationPassword(): void
+    {
+        $this->setAuthToken(AuthKeysFixture::ADMIN_API_KEY);
+        $this->get(self::ENDPOINT);
+
+        $this->assertResponseOk();
+        $this->assertResponseContains('"password": "*****"');
+        $this->assertResponseNotContains('$2y$10$');
+    }
 }
