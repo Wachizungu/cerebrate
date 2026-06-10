@@ -91,8 +91,10 @@ if (file_exists(CONFIG . 'app_local.php')) {
     //Configure::load('cerebrate', 'default', true);
 }
 
+// config.json holds local instance settings - don't apply them under PHPUnit,
+// so test runs behave the same regardless of how the local instance is configured
 $settingsFile = new File(CONFIG . 'config.json');
-if ($settingsFile->exists()) {
+if ($settingsFile->exists() && !defined('PHPUNIT_COMPOSER_INSTALL')) {
     $settings = file_get_contents(CONFIG . 'config.json');
     $settings = json_decode($settings, true);
     foreach ($settings as $path => $setting) {

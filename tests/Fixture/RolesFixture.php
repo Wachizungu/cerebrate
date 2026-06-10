@@ -26,6 +26,8 @@ class RolesFixture extends TestFixture
                 'name' => 'admin',
                 'is_default' => false,
                 'perm_admin' => true,
+                // the AdminPermissionSplit migration grants community_admin to all pre-split admin roles
+                'perm_community_admin' => true,
                 'perm_sync' => false,
                 'perm_org_admin' => false
             ],
@@ -35,6 +37,7 @@ class RolesFixture extends TestFixture
                 'name' => 'sync',
                 'is_default' => false,
                 'perm_admin' => false,
+                'perm_community_admin' => false,
                 'perm_sync' => true,
                 'perm_org_admin' => false
             ],
@@ -44,6 +47,7 @@ class RolesFixture extends TestFixture
                 'name' => 'org_admin',
                 'is_default' => false,
                 'perm_admin' => false,
+                'perm_community_admin' => false,
                 'perm_sync' => false,
                 'perm_org_admin' => true
             ],
@@ -53,6 +57,7 @@ class RolesFixture extends TestFixture
                 'name' => 'user',
                 'is_default' => true,
                 'perm_admin' => false,
+                'perm_community_admin' => false,
                 'perm_sync' => false,
                 'perm_org_admin' => false
             ]

@@ -352,7 +352,7 @@ class ACLComponent extends Component
         return null;
     }
 
-    public function canEditUser(User $currentUser, User $user): bool
+    public function canEditUser(User $currentUser, ?User $user): bool
     {
         if (empty($user) || empty($currentUser)) {
             return false;

@@ -128,6 +128,11 @@ class SettingsTable extends AppTable
 
     public function loadSettings(): void
     {
+        // config.json holds local instance settings - don't apply them under PHPUnit,
+        // so test runs behave the same regardless of how the local instance is configured
+        if (defined('PHPUNIT_COMPOSER_INSTALL')) {
+            return;
+        }
         $settings = file_get_contents(CONFIG . 'config.json');
         $settings = json_decode($settings, true);
         foreach ($settings as $path => $setting) {
