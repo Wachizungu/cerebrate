@@ -447,9 +447,6 @@ class CRUDComponent extends Component
                 'associated' => [],
                 'accessibleFields' => $data->getAccessibleFieldForNew(),
             ];
-            if (!empty($params['id'])) {
-                unset($params['id']);
-            }
             $input = $this->__massageInput($params);
             if (!empty($params['fields'])) {
                 $patchEntityParams['fields'] = $params['fields'];
@@ -459,6 +456,12 @@ class CRUDComponent extends Component
                 if ($input === false) {
                     throw new NotFoundException(__('Could not save {0} due to the marshaling failing. Your input is bad and you should feel bad.', $this->ObjectAlias));
                 }
+            }
+            // Strip the primary key from user input AFTER beforeMarshal, so that neither the
+            // request body nor a beforeMarshal callback can mass-assign `id` and cause save()
+            // to overwrite an unrelated record. Mirrors edit().
+            if (!empty($input['id'])) {
+                unset($input['id']);
             }
             if ($metaFieldsEnabled) {
                 $massagedData = $this->massageMetaFields($data, $input, $metaTemplates);
@@ -813,6 +816,12 @@ class CRUDComponent extends Component
                 if ($input === false) {
                     throw new NotFoundException(__('Could not save {0} due to the marshaling failing. Your input is bad and you should feel bad.', $this->ObjectAlias));
                 }
+            }
+            // Strip the primary key from user input AFTER beforeMarshal. The entity is always
+            // loaded by the URL `$id`; allowing `id` from the body would let an attacker
+            // redirect the UPDATE to a different record (mass-assignment). Mirrors add().
+            if (!empty($input['id'])) {
+                unset($input['id']);
             }
             $cleanupMetaFields = [];
             if ($metaFieldsEnabled) {

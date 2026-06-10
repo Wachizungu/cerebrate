@@ -16,6 +16,7 @@ use Cake\Core\Configure;
 use Cake\Http\Client;
 use Cake\Http\Client\FormData;
 use Cake\Http\Exception\NotFoundException;
+use Cake\Log\Log;
 use Cake\Utility\Inflector;
 
 class AuthKeycloakBehavior extends Behavior
@@ -408,19 +409,23 @@ class AuthKeycloakBehavior extends Behavior
         $changes = [
             'created' => [],
             'modified' => [],
+            'errors' => [],
         ];
         foreach ($users as &$user) {
             try {
                 if (empty($keycloakUsersParsed[$user['username']])) {
-                    if ($this->createUser($user, $clientId)) {
+                    if ($this->createUser($user, $clientId, $changes['errors'])) {
                         $changes['created'][] = $user['username'];
                     }
                 } else {
-                    if ($this->checkAndUpdateUser($keycloakUsersParsed[$user['username']], $user)) {
+                    if ($this->checkAndUpdateUser($keycloakUsersParsed[$user['username']], $user, $changes['errors'])) {
                         $changes['modified'][] = $user['username'];
                     }
                 }
             } catch (\Exception $e) {
+                $message = __('Failed to create or modify user ({0}) in keycloak: {1}', $user['username'], $e->getMessage());
+                Log::error($message);
+                $changes['errors'][] = $message;
                 $this->_table->auditLogs()->insert([
                     'request_action' => 'syncUsers',
                     'model' => 'User',
@@ -508,7 +513,7 @@ class AuthKeycloakBehavior extends Behavior
         return $results;
     }
 
-    private function checkAndUpdateUser(array $keycloakUser, array $user): bool
+    private function checkAndUpdateUser(array $keycloakUser, array $user, array &$errors = []): bool
     {
         if (!empty($user['meta_fields'][0])) {
             $temp = [];
@@ -550,6 +555,9 @@ class AuthKeycloakBehavior extends Behavior
             }
             $response = $this->restApiRequest('%s/admin/realms/%s/users/' . $keycloakUser['id'], $change, 'put');
             if (!$response->isOk()) {
+                $message = __('Failed to update user ({0}) in keycloak: HTTP {1}', $user['username'], $response->getStatusCode());
+                Log::error($message);
+                $errors[] = $message;
                 $this->_table->auditLogs()->insert([
                     'request_action' => 'keycloakUpdateUser',
                     'model' => 'User',
@@ -667,7 +675,7 @@ class AuthKeycloakBehavior extends Behavior
         return false;
     }
 
-    private function createUser(array $user, string $clientId)
+    private function createUser(array $user, string $clientId, array &$errors = [])
     {
         $newUser = [
             'username' => $user['username'],
@@ -687,6 +695,9 @@ class AuthKeycloakBehavior extends Behavior
         }
         $response = $this->restApiRequest('%s/admin/realms/%s/users', $newUser, 'post');
         if (!$response->isOk()) {
+            $message = __('Failed to create user ({0}) in keycloak: HTTP {1}', $user['username'], $response->getStatusCode());
+            Log::error($message);
+            $errors[] = $message;
             $this->_table->auditLogs()->insert([
                 'request_action' => 'createUser',
                 'model' => 'User',

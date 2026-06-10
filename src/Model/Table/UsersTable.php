@@ -308,8 +308,11 @@ class UsersTable extends AppTable
     public function handleUserUpdateRouter(\App\Model\Entity\User $user): bool
     {
         if (!empty(Configure::read('keycloak.enabled'))) {
-            $success = $this->handleUserUpdate($user);
-            // return $success;
+            $changes = $this->handleUserUpdate($user);
+            if (!empty($changes['errors'])) {
+                // not a column - carries the sync errors to the controller so they can be surfaced to the user
+                $user->_keycloak_sync_errors = $changes['errors'];
+            }
         }
         return true;
     }

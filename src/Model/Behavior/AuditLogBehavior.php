@@ -184,6 +184,15 @@ class AuditLogBehavior extends Behavior
                 if ($old !== null) {
                     $old = $value;
                 }
+            } else {
+                // JSON columns (e.g. Inbox.data for user registration requests)
+                // can carry credentials nested inside the payload
+                if (is_array($value)) {
+                    $value = $this->redactNestedSensitiveFields($value);
+                }
+                if (is_array($old)) {
+                    $old = $this->redactNestedSensitiveFields($old);
+                }
             }
 
             if ($old === null) {
@@ -193,6 +202,21 @@ class AuditLogBehavior extends Behavior
             }
         }
         return $changedFields;
+    }
+
+    /**
+     * Recursively mask sensitive keys inside array (JSON column) values.
+     */
+    private function redactNestedSensitiveFields(array $data): array
+    {
+        foreach ($data as $key => $value) {
+            if ($key === 'password' || $key === 'authkey') {
+                $data[$key] = '*****';
+            } else if (is_array($value)) {
+                $data[$key] = $this->redactNestedSensitiveFields($value);
+            }
+        }
+        return $data;
     }
 
     /**

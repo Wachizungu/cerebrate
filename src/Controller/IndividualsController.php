@@ -107,10 +107,6 @@ class IndividualsController extends AppController
 
         $this->CRUD->view($id, [
             'contain' => ['Alignments' => 'Organisations', 'Users' => ['fields' => ['id', 'username']]],
-            'beforeFind' => function($data) use ($id) {
-                
-                return $query;
-            },
             'afterFind' => function($data) use ($canEdit) {
                 if (!empty($data['user'])) {
                     $data['has_user'] = true;
@@ -137,6 +133,7 @@ class IndividualsController extends AppController
         $currentUser = $this->ACL->getUser();
         $this->CRUD->edit($id, [
             'beforeSave' => function($data) use ($currentUser) {
+                $data['id'] = intval($id);
                 if (!$currentUser['role']['perm_community_admin'] && isset($data['uuid'])) {
                     unset($data['uuid']);
                 }

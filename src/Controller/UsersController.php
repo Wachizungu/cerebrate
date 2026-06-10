@@ -260,6 +260,11 @@ class UsersController extends AppController
     public function edit($id = false)
     {
         $currentUser = $this->ACL->getUser();
+        if (empty($id)) {
+            $id = $currentUser['id'];
+        } else {
+            $id = intval($id);
+        }
         $userToEdit = $this->Users->find()->where(['Users.id' => $id])->contain('Roles')->first();
         if (!$this->ACL->canEditUser($currentUser, $userToEdit)) {
             throw new NotFoundException(__('Invalid User.'));
@@ -278,11 +283,6 @@ class UsersController extends AppController
         }
         if ($this->ACL->getUser()['id'] == $id) {
             $validRoles[$this->ACL->getUser()['role']['id']] = $this->ACL->getUser()['role']['name']; // include the current role of the user
-        }
-        if (empty($id)) {
-            $id = $currentUser['id'];
-        } else {
-            $id = intval($id);
         }
 
         $params = [
@@ -356,6 +356,18 @@ class UsersController extends AppController
                 };
             }
         }
+        $params['afterSave'] = function ($data) {
+            if (!empty($data->_keycloak_sync_errors)) {
+                if (!$this->ParamHandler->isRest() && !$this->ParamHandler->isAjax()) {
+                    $this->Flash->warning(__(
+                        'The user was saved, but the changes could not be pushed to keycloak: {0}',
+                        implode(' ', $data->_keycloak_sync_errors)
+                    ));
+                }
+                unset($data->_keycloak_sync_errors);
+            }
+            return $data;
+        };
         $this->CRUD->edit($id, $params);
         $responsePayload = $this->CRUD->getResponsePayload();
         if (!empty($responsePayload)) {

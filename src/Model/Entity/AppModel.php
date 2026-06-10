@@ -24,6 +24,21 @@ class AppModel extends Entity
         ACTION_LOGIN_FAIL = 'login_fail',
         ACTION_LOGOUT = 'logout';
 
+    /**
+     * Global mass-assignment guard inherited by every entity that does not declare its
+     * own $_accessible. `'*' => true` preserves the historical default (all columns are
+     * marshallable); `'id' => false` ensures the primary key can NEVER be set from request
+     * input via patchEntity()/newEntity(), preventing id mass-assignment (i.e. redirecting
+     * a save() onto an unrelated record). Entities that define their own $_accessible
+     * already set `'id' => false` explicitly. Code that must set a PK does so via direct
+     * assignment ($entity->id = ...), which bypasses accessibility and is unaffected.
+     *
+     * @var array<string, bool>
+     */
+    protected $_accessible = [
+        '*' => true,
+        'id' => false,
+    ];
 
     public function getConstant($name)
     {
