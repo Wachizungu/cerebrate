@@ -179,6 +179,7 @@ class MetaTemplatesController extends AppController
                     $metaFieldsToDelete[] = $entity->meta_fields[$i];
                 }
             }
+            unset($inputData['id']); // never let the request body reassign the entity PK (mass-assignment guard)
             $data = $entityTable->patchEntity($data, $inputData);
             $savedData = $entityTable->save($data);
             if ($savedData !== false) {
