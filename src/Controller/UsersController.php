@@ -356,6 +356,18 @@ class UsersController extends AppController
                 };
             }
         }
+        $params['afterSave'] = function ($data) {
+            if (!empty($data->_keycloak_sync_errors)) {
+                if (!$this->ParamHandler->isRest() && !$this->ParamHandler->isAjax()) {
+                    $this->Flash->warning(__(
+                        'The user was saved, but the changes could not be pushed to keycloak: {0}',
+                        implode(' ', $data->_keycloak_sync_errors)
+                    ));
+                }
+                unset($data->_keycloak_sync_errors);
+            }
+            return $data;
+        };
         $this->CRUD->edit($id, $params);
         $responsePayload = $this->CRUD->getResponsePayload();
         if (!empty($responsePayload)) {
