@@ -447,10 +447,10 @@ class CRUDComponent extends Component
                 'associated' => [],
                 'accessibleFields' => $data->getAccessibleFieldForNew(),
             ];
-            if (!empty($params['id'])) {
-                unset($params['id']);
-            }
             $input = $this->__massageInput($params);
+            if (!empty($input['id'])) {
+                unset($input['id']);
+            }
             if (!empty($params['fields'])) {
                 $patchEntityParams['fields'] = $params['fields'];
             }
