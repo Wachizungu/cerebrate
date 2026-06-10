@@ -7,6 +7,7 @@ use Cake\Event\EventInterface;
 use Cake\ORM\Behavior;
 use Cake\ORM\Entity;
 use Cake\ORM\Query;
+use Cake\ORM\TableRegistry;
 use Cake\Utility\Text;
 use Cake\Utility\Security;
 use Cake\Utility\Hash;
@@ -87,7 +88,7 @@ class AuthKeycloakBehavior extends Behavior
         }
         // Query the MetaFields table directly rather than via the Users->MetaFields
         // association, whose find() would bake in a conflicting scope = 'user' condition.
-        $metaFields = $this->_table->getTableLocator()->get('MetaFields')->find()
+        $metaFields = TableRegistry::getTableLocator()->get('MetaFields')->find()
             ->where([
                 'MetaFields.scope' => 'organisation',
                 'MetaFields.parent_id IN' => $orgIds,
