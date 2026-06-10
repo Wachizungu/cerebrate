@@ -9,8 +9,9 @@ class Alignment extends AppModel
 {
         protected $_accessible = [
             'organisation_id' => true,
+            'individual_id' => true,
             'type' => true,
             'id' => false,
             'created' => false
-    ];  
+    ];
 }
