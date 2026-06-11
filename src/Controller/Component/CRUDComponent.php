@@ -1127,7 +1127,13 @@ class CRUDComponent extends Component
             // We deep copy the meta-template so that the data attached is not preserved for the next iteration
             $metaTemplates = array_map(
                 function ($metaTemplate) {
-                    $tmpEntity = $this->MetaTemplates->newEntity($metaTemplate->toArray());
+                    // This is a server-side deep copy of an already-persisted template, not request
+                    // input — re-allow `id` here, which AppModel's global mass-assignment guard
+                    // (`'id' => false`) would otherwise strip on the template and its fields.
+                    $tmpEntity = $this->MetaTemplates->newEntity($metaTemplate->toArray(), [
+                        'accessibleFields' => ['id' => true],
+                        'associated' => ['MetaTemplateFields' => ['accessibleFields' => ['id' => true]]],
+                    ]);
                     $tmpEntity['meta_template_fields'] = Hash::combine($tmpEntity['meta_template_fields'], '{n}.id', '{n}'); // newEntity resets array indexing, see https://github.com/cakephp/cakephp/blob/32e3c532fea8abe2db8b697f07dfddf4dfc134ca/src/ORM/Marshaller.php#L369
                     return $tmpEntity;
                 },
